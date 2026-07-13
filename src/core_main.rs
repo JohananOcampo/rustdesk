@@ -450,6 +450,28 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
             }
             return None;
+        } else if args[0] == "--password-stdin" {
+            if is_cli_setting_change_disabled()
+                || config::Config::is_disable_change_permanent_password()
+            {
+                println!("Changing permanent password is disabled!");
+                return None;
+            }
+            if !crate::platform::is_installed() || !is_root() {
+                println!("Installation and administrative privileges required!");
+                return None;
+            }
+            match read_password_from(std::io::stdin().lock()) {
+                Ok(password) => {
+                    if let Err(err) = crate::ipc::set_permanent_password(password) {
+                        println!("{err}");
+                    } else {
+                        println!("Done!");
+                    }
+                }
+                Err(err) => println!("{err}"),
+            }
+            return None;
         } else if args[0] == "--set-unlock-pin" {
             if config::Config::is_disable_unlock_pin() {
                 println!("Unlock PIN is disabled!");
@@ -913,6 +935,7 @@ fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
     matches!(
         args.first().map(String::as_str),
         Some("--password")
+            | Some("--password-stdin")
             | Some("--set-unlock-pin")
             | Some("--get-id")
             | Some("--set-id")
@@ -921,6 +944,27 @@ fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
             | Some("--assign")
             | Some("--deploy")
     )
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn read_password_from(mut reader: impl std::io::Read) -> Result<String, String> {
+    const MAX_PASSWORD_BYTES: u64 = 256;
+    let mut bytes = Vec::new();
+    reader
+        .by_ref()
+        .take(MAX_PASSWORD_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Failed to read password from stdin".to_owned())?;
+    if bytes.len() as u64 > MAX_PASSWORD_BYTES {
+        return Err("Password exceeds maximum length".to_owned());
+    }
+    while matches!(bytes.last(), Some(b'\r' | b'\n')) {
+        bytes.pop();
+    }
+    if bytes.is_empty() {
+        return Err("Password cannot be empty".to_owned());
+    }
+    String::from_utf8(bytes).map_err(|_| "Password must be valid UTF-8".to_owned())
 }
 
 #[inline]
@@ -957,9 +1001,21 @@ mod tests {
     }
 
     #[test]
+    fn password_stdin_reader_trims_newline_and_rejects_invalid_values() {
+        assert_eq!(
+            read_password_from("secret-value\r\n".as_bytes()).unwrap(),
+            "secret-value"
+        );
+        assert!(read_password_from("\r\n".as_bytes()).is_err());
+        assert!(read_password_from(vec![b'x'; 257].as_slice()).is_err());
+        assert!(read_password_from([0xff].as_slice()).is_err());
+    }
+
+    #[test]
     fn user_main_ipc_scope_cli_command_matches_management_commands_only() {
         for command in [
             "--password",
+            "--password-stdin",
             "--set-unlock-pin",
             "--get-id",
             "--set-id",
