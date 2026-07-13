@@ -948,6 +948,8 @@ fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn read_password_from(mut reader: impl std::io::Read) -> Result<String, String> {
+    use std::io::Read as _;
+
     const MAX_PASSWORD_BYTES: u64 = 256;
     let mut bytes = Vec::new();
     reader
