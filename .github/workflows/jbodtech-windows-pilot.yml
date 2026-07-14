@@ -1,0 +1,71 @@
+name: JBODTECH Controlled Windows Pilot
+run-name: JBODTECH pilot ${{ inputs.dispatch_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dispatch_id:
+        description: Control-plane correlation UUID
+        required: true
+        type: string
+      source_commit:
+        description: Centrally approved RustDesk source commit
+        required: true
+        type: string
+      spec_sha256:
+        description: SHA-256 of canonical non-secret build specification
+        required: true
+        type: string
+      schema_version:
+        description: Closed build specification schema version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  APPROVED_SOURCE_COMMIT: d41bf3e14fd2136a2ac1fdbbdf8dd40160210730
+
+concurrency:
+  group: jbodtech-pilot-${{ inputs.dispatch_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate-request:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate closed request
+        shell: bash
+        env:
+          DISPATCH_ID: ${{ inputs.dispatch_id }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SPEC_SHA256: ${{ inputs.spec_sha256 }}
+          SCHEMA_VERSION: ${{ inputs.schema_version }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import uuid
+
+          dispatch_id = os.environ["DISPATCH_ID"]
+          if str(uuid.UUID(dispatch_id)) != dispatch_id:
+              raise SystemExit("invalid dispatch identifier")
+          source_commit = os.environ["SOURCE_COMMIT"]
+          if source_commit != os.environ["APPROVED_SOURCE_COMMIT"]:
+              raise SystemExit("unapproved source commit")
+          if re.fullmatch(r"[0-9a-f]{64}", os.environ["SPEC_SHA256"]) is None:
+              raise SystemExit("invalid specification digest")
+          if os.environ["SCHEMA_VERSION"] != "1":
+              raise SystemExit("unsupported specification schema")
+          PY
+
+  build-unsigned-windows-pilot:
+    needs: validate-request
+    uses: ./.github/workflows/flutter-build.yml
+    with:
+      upload-artifact: true
+      upload-tag: pilot-${{ inputs.dispatch_id }}
+      source-commit: ${{ inputs.source_commit }}
+      windows-pilot-only: true
+      publish-release: false
