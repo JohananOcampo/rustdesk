@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 env:
-  APPROVED_SOURCE_COMMIT: d41bf3e14fd2136a2ac1fdbbdf8dd40160210730
+  APPROVED_SOURCE_COMMIT: f54c0fa28dde53f58afe2e1c2add8693b4b4797a
 
 concurrency:
   group: jbodtech-pilot-${{ inputs.dispatch_id }}
