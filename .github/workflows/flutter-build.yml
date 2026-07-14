@@ -12,6 +12,12 @@ on:
       source-commit:
         type: string
         default: ""
+      build-spec-json:
+        type: string
+        default: ""
+      build-spec-sha256:
+        type: string
+        default: ""
       windows-pilot-only:
         type: boolean
         default: false
@@ -60,6 +66,8 @@ env:
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   PUBLISH_RELEASE: "${{ inputs.publish-release }}"
+  BUILD_SPEC_JSON: "${{ inputs.build-spec-json }}"
+  BUILD_SPEC_SHA256: "${{ inputs.build-spec-sha256 }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
 
 jobs:
@@ -130,6 +138,13 @@ jobs:
         with:
           ref: ${{ inputs.source-commit || github.sha }}
           submodules: recursive
+
+      - name: Apply validated JBODTECH build specification
+        if: ${{ inputs.windows-pilot-only }}
+        shell: bash
+        run: python3 res/jbodtech/apply_build_spec.py --expected-sha256 "$BUILD_SPEC_SHA256" --expected-source "$SOURCE_COMMIT"
+        env:
+          SOURCE_COMMIT: ${{ inputs.source-commit }}
 
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -364,7 +379,12 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           pushd ./res/msi
-          python preprocess.py --arp -d ../../rustdesk
+          if (Test-Path ../jbodtech/applied-build-spec.json) {
+            $buildSpec = Get-Content ../jbodtech/applied-build-spec.json -Raw | ConvertFrom-Json
+            python preprocess.py --arp -d ../../rustdesk --app-name $buildSpec.app_name --manufacturer $buildSpec.company_name
+          } else {
+            python preprocess.py --arp -d ../../rustdesk
+          }
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10

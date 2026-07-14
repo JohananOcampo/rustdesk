@@ -16,6 +16,10 @@ on:
         description: SHA-256 of canonical non-secret build specification
         required: true
         type: string
+      spec_json:
+        description: Canonical non-secret build specification
+        required: true
+        type: string
       schema_version:
         description: Closed build specification schema version
         required: true
@@ -41,9 +45,12 @@ jobs:
           DISPATCH_ID: ${{ inputs.dispatch_id }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           SPEC_SHA256: ${{ inputs.spec_sha256 }}
+          SPEC_JSON: ${{ inputs.spec_json }}
           SCHEMA_VERSION: ${{ inputs.schema_version }}
         run: |
           python3 - <<'PY'
+          import hashlib
+          import json
           import os
           import re
           import uuid
@@ -56,6 +63,14 @@ jobs:
               raise SystemExit("unapproved source commit")
           if re.fullmatch(r"[0-9a-f]{64}", os.environ["SPEC_SHA256"]) is None:
               raise SystemExit("invalid specification digest")
+          spec_json = os.environ["SPEC_JSON"]
+          if len(spec_json.encode("utf-8")) > 8192:
+              raise SystemExit("specification too large")
+          if hashlib.sha256(spec_json.encode("utf-8")).hexdigest() != os.environ["SPEC_SHA256"]:
+              raise SystemExit("specification integrity mismatch")
+          spec = json.loads(spec_json)
+          if spec.get("schema_version") != 1 or spec.get("source_commit") != source_commit:
+              raise SystemExit("specification binding mismatch")
           if os.environ["SCHEMA_VERSION"] != "1":
               raise SystemExit("unsupported specification schema")
           PY
@@ -67,5 +82,7 @@ jobs:
       upload-artifact: true
       upload-tag: pilot-${{ inputs.dispatch_id }}
       source-commit: ${{ inputs.source_commit }}
+      build-spec-json: ${{ inputs.spec_json }}
+      build-spec-sha256: ${{ inputs.spec_sha256 }}
       windows-pilot-only: true
       publish-release: false
